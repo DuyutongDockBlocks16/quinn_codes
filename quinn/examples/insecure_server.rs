@@ -146,7 +146,7 @@ async fn run(options: Opt) -> Result<()> {
     // let endpoint = quinn::Endpoint::server(server_config, options.listen)?;
     // eprintln!("listening on {}", endpoint.local_addr()?);
 
-    let addr = "127.0.0.1:5000".parse().unwrap();
+    let addr = "[::1]:4433".parse().unwrap();
     let (endpoint, _server_cert) = make_server_endpoint(addr).unwrap();
     // accept a single connection
     // let incoming_conn = endpoint.accept().await.unwrap();
