@@ -38,7 +38,7 @@ struct Opt {
     stateless_retry: bool,
     /// Address to listen on
     // #[clap(long = "listen", default_value = "[::1]:4433")] // loopback addr
-    #[clap(long = "listen", default_value = "[fe80::18b8:82ff:fecd:207e%h1-eth0]:4433")] // mininet host addr
+    #[clap(long = "listen", default_value = "10.0.0.1:4433")] // mininet host addr
     listen: SocketAddr,
 }
 
@@ -152,9 +152,8 @@ async fn run(options: Opt) -> Result<()> {
     // let addr = "[::1]:4433".parse().unwrap(); // loopback addr
     // let (endpoint, _server_cert) = make_server_endpoint(addr).unwrap(); // loopback addr
 
-    let (endpoint, _server_cert) = make_server_endpoint(options.listen).unwrap(); // mininet host addr
-
-
+    let addr: SocketAddr = "10.0.0.1:4433".parse()?;  // mininet host addr
+    let (endpoint, _server_cert) = make_server_endpoint(addr).unwrap(); // mininet host addr
 
     // accept a single connection
     // let incoming_conn = endpoint.accept().await.unwrap();
