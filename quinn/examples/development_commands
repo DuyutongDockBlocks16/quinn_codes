@@ -1,14 +1,20 @@
+cargo build --example insecure_server
+ cargo build --example insecure_server
+
 mn --clean
 sudo mn
-cd rust_exec
+
 h1 bash
-h2 bash
+cd rust_exec
 ifconfig
 rm output.log
 ./insecure_server ./> output.log 2>&1 &
 exit
-./insecure_client 'https://10.0.0.1:4433/README.md'
 
-tc qdisc add dev h2-eth0 root netem loss 50%
+h2 bash
+cd rust_exec
+./insecure_client 'https://10.0.0.1:4433/README.md'
+tc qdisc add dev h2-eth0 root netem loss 10%
 tc qdisc add dev h2-eth0 root netem loss 60%
+tc qdisc add dev h2-eth0 root netem loss 80%
 tc qdisc del dev h2-eth0 root
