@@ -18,3 +18,8 @@ tc qdisc add dev h2-eth0 root netem loss 10%
 tc qdisc add dev h2-eth0 root netem loss 60%
 tc qdisc add dev h2-eth0 root netem loss 80%
 tc qdisc del dev h2-eth0 root
+
+
+
+cargo run --example insecure_server ./
+cargo run --example insecure_client https://localhost:4433/README.md

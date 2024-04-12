@@ -141,7 +141,7 @@ async fn run(options: Opt) -> Result<()> {
         duration,
         resp.len() as f32 / (duration_secs(&duration) * 1024.0)
     );
-    io::stdout().write_all(&resp).unwrap();
+    // io::stdout().write_all(&resp).unwrap();
     io::stdout().flush().unwrap();
     conn.close(0u32.into(), b"done");
 

@@ -6,3 +6,7 @@ Cargo.lock
 .idea
 .DS_Store
 .vscode
+.bin
+/quinn/examples/100MB_file.bin
+/quinn/examples/10MB_file.bin
+/quinn/examples/1GB_file.bin
