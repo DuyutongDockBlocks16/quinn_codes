@@ -286,6 +286,9 @@ fn process_get(root: &Path, x: &[u8]) -> Result<Vec<u8>> {
             }
         }
     }
+
+    println!("{:?}",real_path);
+
     let data = fs::read(&real_path).context("failed reading file")?;
     Ok(data)
 }
