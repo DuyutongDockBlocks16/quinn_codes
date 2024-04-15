@@ -19,8 +19,9 @@ use quinn::{ClientConfig};
 use qlog;
 use std::fs::File;
 use qlog::events::connectivity::ConnectionStarted;
-use qlog::events::quic::{PacketHeader, PacketReceived, PacketType};
+use qlog::events::quic::{DatagramsReceived, PacketHeader, PacketReceived, PacketType};
 use chrono::{Local, Datelike, Timelike};
+use qlog::events::RawInfo;
 
 mod common;
 
@@ -242,10 +243,53 @@ async fn run(options: Opt) -> Result<()> {
     ));
     streamer.add_event(event_request_sent).ok();
 
-    let resp = recv
-        .read_to_end(usize::max_value())
-        .await
-        .map_err(|e| anyhow!("failed to read response: {}", e))?;
+    let mut buffer = Vec::new();
+    let mut temp_buffer = [0; 10 * 1024]; // 用于暂存读取的数据的缓冲区
+
+    loop {
+        match recv.read(&mut temp_buffer).await? {
+            Some(n) => {
+                buffer.extend_from_slice(&temp_buffer[..n]);
+
+                let now = Instant::now();
+
+                let event_recv_read_duration = now - start;
+
+                let event_recv_read_time = (event_recv_read_duration.as_secs() as f32 * 1000.0)
+                    + (event_recv_read_duration.subsec_nanos() as f32 / 1_000_000.0);
+
+                let raw_info = RawInfo {
+                    length: Some(n as u64),             // 示例值，您可以根据需要进行设置
+                    payload_length: None,    // 示例值，您可以根据需要进行设置
+                    data: None,               // 示例值，您可以根据需要进行设置
+                };
+
+                let mut raw_info_vec = Vec::new();
+                raw_info_vec.push(raw_info);
+
+                let event_recv_read = qlog::events::Event::with_time(event_recv_read_time,
+                                                                     qlog::events::EventData::DatagramsReceived(DatagramsReceived {
+                                                                         count: None,
+                                                                         raw: Some(raw_info_vec),
+                                                                         datagram_ids: None,
+                                                                     }));
+                streamer.add_event(event_recv_read).ok();
+            }
+            None => {
+                // 流已经结束
+                break;
+            }
+        }
+    }
+
+    let resp = buffer;
+
+
+    //
+    // let resp = recv
+    //     .read_to_end(usize::max_value())
+    //     .await
+    //     .map_err(|e| anyhow!("failed to read response: {}", e))?;
 
 
     let duration = response_start.elapsed();
@@ -254,6 +298,8 @@ async fn run(options: Opt) -> Result<()> {
         duration,
         resp.len() as f32 / (duration_secs(&duration) * 1024.0)
     );
+
+
 
     let event_resp_received_time = (duration.as_secs() as f32 * 1000.0)
         + (duration.subsec_nanos() as f32 / 1_000_000.0);
