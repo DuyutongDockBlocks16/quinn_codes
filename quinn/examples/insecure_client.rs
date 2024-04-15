@@ -20,6 +20,7 @@ use qlog;
 use std::fs::File;
 use qlog::events::connectivity::ConnectionStarted;
 use qlog::events::quic::{PacketHeader, PacketReceived, PacketType};
+use chrono::{Local, Datelike, Timelike};
 
 mod common;
 
@@ -74,18 +75,24 @@ async fn run(options: Opt) -> Result<()> {
         .next()
         .ok_or_else(|| anyhow!("couldn't resolve to an address"))?;
 
+    let now = Local::now();
+
+    let formatted_time = now.format("%Y%m%d%H%M%S").to_string();
+
+    let file_name = format!("client_{}.qlog", formatted_time);
+
     // 创建 Qlog 流处理器
-    let mut qlog_file = File::create("client.qlog").unwrap();
+    let qlog_file = File::create(file_name).unwrap();
 
 
-    let mut trace = qlog::TraceSeq::new(
+    let trace = qlog::TraceSeq::new(
        qlog::VantagePoint {
-           name: Some("Example client".to_string()),
+           name: Some("Client".to_string()),
           ty: qlog::VantagePointType::Client,
            flow: None,
       },
-       Some("Example qlog trace".to_string()),
-      Some("Example qlog trace description".to_string()),
+       Some("Client qlog trace".to_string()),
+      Some("Client qlog trace description".to_string()),
       Some(qlog::Configuration {
           time_offset: Some(0.0),
           original_uris: None,

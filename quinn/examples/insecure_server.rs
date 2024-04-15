@@ -15,6 +15,14 @@ use clap::Parser;
 use tracing::{error, info, info_span};
 use tracing_futures::Instrument as _;
 use quinn::{ClientConfig, Endpoint};
+use qlog;
+use std::fs::File;
+use std::time::Instant;
+use chrono::Local;
+use qlog::events::connectivity::ConnectionStarted;
+use qlog::events::quic::{DatagramDropped, DatagramsSent};
+use qlog::events::RawInfo;
+use qlog::streamer::QlogStreamer;
 
 mod common;
 use common::make_server_endpoint;
@@ -41,6 +49,8 @@ struct Opt {
     // #[clap(long = "listen", default_value = "10.0.0.1:4433")] // mininet host addr
     listen: SocketAddr,
 }
+
+
 
 fn main() {
     tracing::subscriber::set_global_default(
@@ -152,6 +162,7 @@ async fn run(options: Opt) -> Result<()> {
     // let addr = "[::1]:4433".parse().unwrap(); // loopback addr
     // let (endpoint, _server_cert) = make_server_endpoint(addr).unwrap(); // loopback addr
 
+
     let addr = "[::1]:4433".parse().unwrap(); // loopback addr
     // let addr: SocketAddr = "10.0.0.1:4433".parse()?;  // mininet host addr
     let (endpoint, _server_cert) = make_server_endpoint(addr).unwrap(); // mininet host addr
@@ -169,9 +180,52 @@ async fn run(options: Opt) -> Result<()> {
         bail!("root path does not exist");
     }
 
+    let start = Instant::now();
+
     while let Some(conn) = endpoint.accept().await {
+
         info!("connection incoming");
-        let fut = handle_connection(root.clone(), conn);
+
+        let now = Local::now();
+
+        let formatted_time = now.format("%Y%m%d%H%M%S").to_string();
+
+        let file_name = format!("server_{}.qlog", formatted_time);
+
+        let qlog_file = File::create(file_name).unwrap();
+
+        let trace = qlog::TraceSeq::new(
+            qlog::VantagePoint {
+                name: Some("Server".to_string()),
+                ty: qlog::VantagePointType::Client,
+                flow: None,
+            },
+            Some("Server qlog trace".to_string()),
+            Some("Server qlog trace description".to_string()),
+            Some(qlog::Configuration {
+                time_offset: Some(0.0),
+                original_uris: None,
+            }),
+            None,
+        );
+
+        let mut streamer = qlog::streamer::QlogStreamer::new(
+            qlog::QLOG_VERSION.to_string(),
+            Some("Server Qlog".to_string()),
+            Some("Server Qlog description".to_string()),
+            None,
+            std::time::Instant::now(),
+            trace,
+            qlog::events::EventImportance::Extra,
+            Box::new(qlog_file),
+        );
+
+        streamer.start_log().ok();
+
+
+        let fut = handle_connection(root.clone(), conn, streamer, start);
+
+
         tokio::spawn(async move {
             if let Err(e) = fut.await {
                 error!("connection failed: {reason}", reason = e.to_string())
@@ -179,10 +233,11 @@ async fn run(options: Opt) -> Result<()> {
         });
     }
 
+
     Ok(())
 }
 
-async fn handle_connection(root: Arc<Path>, conn: quinn::Connecting) -> Result<()> {
+async fn handle_connection(root: Arc<Path>, conn: quinn::Connecting, mut streamer: QlogStreamer, start_time: Instant) -> Result<()> {
     let connection = conn.await?;
     let span = info_span!(
         "connection",
@@ -194,6 +249,30 @@ async fn handle_connection(root: Arc<Path>, conn: quinn::Connecting) -> Result<(
             .protocol
             .map_or_else(|| "<none>".into(), |x| String::from_utf8_lossy(&x).into_owned())
     );
+
+    let conn_start = Instant::now();
+
+    let event_conn_start_duration = conn_start - start_time;
+
+    let event_conn_start_time = (event_conn_start_duration.as_secs() as f32 * 1000.0)
+        + (event_conn_start_duration.subsec_nanos() as f32 / 1_000_000.0);
+
+    // 添加连接建立事件
+    let event_connect = qlog::events::Event::with_time(event_conn_start_time, qlog::events::EventData::ConnectionStarted{
+        0: ConnectionStarted {
+            ip_version: None,
+            src_ip: "".to_string(),
+            dst_ip: connection.remote_address().to_string(),
+            protocol: None,
+            src_port: None,
+            dst_port: None,
+            src_cid: None,
+            dst_cid: None,
+        },
+
+    });
+    streamer.add_event(event_connect).ok();
+
     async {
         info!("established");
 
@@ -210,7 +289,47 @@ async fn handle_connection(root: Arc<Path>, conn: quinn::Connecting) -> Result<(
                 }
                 Ok(s) => s,
             };
-            let fut = handle_request(root.clone(), stream);
+
+
+            let now = Local::now();
+
+            let formatted_time = now.format("%Y%m%d%H%M%S").to_string();
+
+            let file_name = format!("request_{}.qlog", formatted_time);
+
+            let qlog_file = File::create(file_name).unwrap();
+
+            let trace = qlog::TraceSeq::new(
+                qlog::VantagePoint {
+                    name: Some("request".to_string()),
+                    ty: qlog::VantagePointType::Client,
+                    flow: None,
+                },
+                Some("request_streamer qlog trace".to_string()),
+                Some("request_streamer qlog trace description".to_string()),
+                Some(qlog::Configuration {
+                    time_offset: Some(0.0),
+                    original_uris: None,
+                }),
+                None,
+            );
+
+            let mut request_streamer = qlog::streamer::QlogStreamer::new(
+                qlog::QLOG_VERSION.to_string(),
+                Some("request_streamer Qlog".to_string()),
+                Some("request_streamer Qlog description".to_string()),
+                None,
+                std::time::Instant::now(),
+                trace,
+                qlog::events::EventImportance::Extra,
+                Box::new(qlog_file),
+            );
+
+            request_streamer.start_log().ok();
+
+            let fut = handle_request(root.clone(), stream, request_streamer, start_time);
+
+
             tokio::spawn(
                 async move {
                     if let Err(e) = fut.await {
@@ -229,6 +348,8 @@ async fn handle_connection(root: Arc<Path>, conn: quinn::Connecting) -> Result<(
 async fn handle_request(
     root: Arc<Path>,
     (mut send, mut recv): (quinn::SendStream, quinn::RecvStream),
+    mut request_streamer: QlogStreamer,
+    start_time: Instant,
 ) -> Result<()> {
     let req = recv
         .read_to_end(64 * 1024)
@@ -245,10 +366,68 @@ async fn handle_request(
         error!("failed: {}", e);
         format!("failed to process request: {e}\n").into_bytes()
     });
-    // Write the response
-    send.write_all(&resp)
-        .await
-        .map_err(|e| anyhow!("failed to send response: {}", e))?;
+
+    // // Write the response
+    // send.write_all(&resp)
+    //     .await
+    //     .map_err(|e| anyhow!("failed to send response: {}", e))?;
+
+    let mut bytes_written = 0;
+    while bytes_written < resp.len() {
+        let result = send.write(&resp[bytes_written..]).await;
+        match result {
+            Ok(n) => {
+                bytes_written += n;
+                println!("{} bytes written", n);
+
+                let now = Instant::now();
+
+                let event_send_duration = now - start_time;
+
+                let event_send_time = (event_send_duration.as_secs() as f32 * 1000.0)
+                    + (event_send_duration.subsec_nanos() as f32 / 1_000_000.0);
+
+                let raw_info = RawInfo {
+                    length: Some(n as u64),             // 示例值，您可以根据需要进行设置
+                    payload_length: None,    // 示例值，您可以根据需要进行设置
+                    data: None,               // 示例值，您可以根据需要进行设置
+                };
+
+                let mut raw_info_vec = Vec::new();
+                raw_info_vec.push(raw_info);
+
+                // 添加连接建立事件
+                let event_send = qlog::events::Event::with_time(event_send_time, qlog::events::EventData::DatagramsSent(DatagramsSent {
+                        count: Some(1u16),
+                        raw: Some(raw_info_vec),
+                        datagram_ids: None,
+                    })
+                );
+                request_streamer.add_event(event_send).ok();
+
+            }
+            Err(e) => {
+
+                let now = Instant::now();
+
+                let event_failed_send_duration = now - start_time;
+
+                let event_failed_send_time = (event_failed_send_duration.as_secs() as f32 * 1000.0)
+                    + (event_failed_send_duration.subsec_nanos() as f32 / 1_000_000.0);
+
+                // 添加连接建立事件
+                let event_failed_send = qlog::events::Event::with_time(event_failed_send_time, qlog::events::EventData::DatagramDropped(
+                    DatagramDropped {
+                        raw: None
+                    })
+                );
+                request_streamer.add_event(event_failed_send).ok();
+
+                return Err(anyhow!("failed to send response: {}", e));
+            }
+        }
+    }
+
     // Gracefully terminate the stream
     send.finish()
         .await
