@@ -64,7 +64,7 @@ tokio = { version = "1.28.1", features = ["rt", "rt-multi-thread", "time", "macr
 tracing-subscriber = { version = "0.3.0", default-features = false, features = ["env-filter", "fmt", "ansi", "time", "local-time"] }
 tracing-futures = { version = "0.2.0", default-features = false, features = ["std-future"] }
 url = "2"
-qlog = "0.12.0"
+qlog = { version = "0.12.0"}
 
 [[example]]
 name = "server"

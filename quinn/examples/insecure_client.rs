@@ -16,7 +16,10 @@ use clap::Parser;
 use tracing::{error, info};
 use url::Url;
 use quinn::{ClientConfig};
-
+use qlog;
+use std::fs::File;
+use qlog::events::connectivity::ConnectionStarted;
+use qlog::events::quic::{PacketHeader, PacketReceived, PacketType};
 
 mod common;
 
@@ -70,6 +73,39 @@ async fn run(options: Opt) -> Result<()> {
         .to_socket_addrs()?
         .next()
         .ok_or_else(|| anyhow!("couldn't resolve to an address"))?;
+
+    // 创建 Qlog 流处理器
+    let mut qlog_file = File::create("client.qlog").unwrap();
+
+
+    let mut trace = qlog::TraceSeq::new(
+       qlog::VantagePoint {
+           name: Some("Example client".to_string()),
+          ty: qlog::VantagePointType::Client,
+           flow: None,
+      },
+       Some("Example qlog trace".to_string()),
+      Some("Example qlog trace description".to_string()),
+      Some(qlog::Configuration {
+          time_offset: Some(0.0),
+          original_uris: None,
+      }),
+       None,
+    );
+
+    let mut streamer = qlog::streamer::QlogStreamer::new(
+        qlog::QLOG_VERSION.to_string(),
+        Some("Client Qlog".to_string()),
+        Some("Client Qlog description".to_string()),
+        None,
+        std::time::Instant::now(),
+        trace,
+        qlog::events::EventImportance::Extra,
+        Box::new(qlog_file),
+    );
+
+    streamer.start_log().ok();
+
     //
     // let mut roots = rustls::RootCertStore::empty();
     // if let Some(ca_path) = options.ca {
@@ -103,16 +139,47 @@ async fn run(options: Opt) -> Result<()> {
     endpoint.set_default_client_config(configure_client());
 
     let request = format!("GET {}\r\n", url.path());
-    let start = Instant::now();
+
     let rebind = options.rebind;
     let host = options.host.as_deref().unwrap_or(url_host);
 
     eprintln!("connecting to {host} at {remote}");
+
+    let start = Instant::now();
+
     let conn = endpoint
         .connect(remote, host)?
         .await
         .map_err(|e| anyhow!("failed to connect: {}", e))?;
+
+
+
     eprintln!("connected at {:?}", start.elapsed());
+
+    let conn_start = Instant::now();
+
+    let event_conn_start_duration = conn_start - start;
+
+    let event_conn_start_time = (event_conn_start_duration.as_secs() as f32 * 1000.0)
+        + (event_conn_start_duration.subsec_nanos() as f32 / 1_000_000.0);
+
+    // 添加连接建立事件
+    let event_connect = qlog::events::Event::with_time(event_conn_start_time, qlog::events::EventData::ConnectionStarted{
+        0: ConnectionStarted {
+            ip_version: None,
+            src_ip: "".to_string(),
+            dst_ip: "".to_string(),
+            protocol: None,
+            src_port: None,
+            dst_port: None,
+            src_cid: None,
+            dst_cid: None,
+        },
+
+    });
+    streamer.add_event(event_connect).ok();
+
+
     let (mut send, mut recv) = conn
         .open_bi()
         .await
@@ -130,18 +197,88 @@ async fn run(options: Opt) -> Result<()> {
     send.finish()
         .await
         .map_err(|e| anyhow!("failed to shutdown stream: {}", e))?;
+
     let response_start = Instant::now();
-    eprintln!("request sent at {:?}", response_start - start);
+
+    let event_request_sent_duration = response_start - start;
+
+    eprintln!("request sent at {:?}", event_request_sent_duration);
+
+    let event_request_sent_time = (event_request_sent_duration.as_secs() as f32 * 1000.0)
+        + (event_request_sent_duration.subsec_nanos() as f32 / 1_000_000.0);
+
+    // 添加发送请求事件
+    let event_request_sent = qlog::events::Event::with_time(event_request_sent_time , qlog::events::EventData::PacketSent( qlog::events::quic::PacketSent{
+        header: PacketHeader {
+            packet_type: PacketType::Initial,
+            packet_number: None,
+            flags: None,
+            token: None,
+            length: Some(request.as_bytes().len() as u16),
+            version: None,
+            scil: None,
+            dcil: None,
+            scid: None,
+            dcid: None,
+        },
+        is_coalesced: None,
+        retry_token: None,
+        stateless_reset_token: None,
+        supported_versions: None,
+        raw: None,
+        datagram_id: None,
+        trigger: None,
+        send_at_time: Some(response_start.elapsed().as_micros() as f32),
+        frames: None,
+    }
+
+    ));
+    streamer.add_event(event_request_sent).ok();
+
     let resp = recv
         .read_to_end(usize::max_value())
         .await
         .map_err(|e| anyhow!("failed to read response: {}", e))?;
+
+
     let duration = response_start.elapsed();
     eprintln!(
         "response received in {:?} - {} KiB/s",
         duration,
         resp.len() as f32 / (duration_secs(&duration) * 1024.0)
     );
+
+    let event_resp_received_time = (duration.as_secs() as f32 * 1000.0)
+        + (duration.subsec_nanos() as f32 / 1_000_000.0);
+
+    let event_resp_received = qlog::events::Event::with_time(event_resp_received_time, qlog::events::EventData::PacketReceived(PacketReceived {
+            header: PacketHeader {
+                packet_type: PacketType::Initial,
+                packet_number: None,
+                flags: None,
+                token: None,
+                length: None,
+                version: None,
+                scil: None,
+                dcil: None,
+                scid: None,
+                dcid: None,
+            },
+            is_coalesced: None,
+            retry_token: None,
+            stateless_reset_token: None,
+            supported_versions: None,
+            raw: None,
+            datagram_id: None,
+            trigger: None,
+            frames: None,
+        })
+    );
+
+    streamer.add_event(event_resp_received).ok();
+
+    streamer.finish_log().expect("TODO: Cant finish log");
+
     // io::stdout().write_all(&resp).unwrap();
     io::stdout().flush().unwrap();
     conn.close(0u32.into(), b"done");
