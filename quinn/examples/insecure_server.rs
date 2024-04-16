@@ -163,8 +163,8 @@ async fn run(options: Opt) -> Result<()> {
     // let (endpoint, _server_cert) = make_server_endpoint(addr).unwrap(); // loopback addr
 
 
-    let addr = "[::1]:4433".parse().unwrap(); // loopback addr
-    // let addr: SocketAddr = "10.0.0.1:4433".parse()?;  // mininet host addr
+    // let addr = "[::1]:4433".parse().unwrap(); // loopback addr
+    let addr: SocketAddr = "10.0.0.1:4433".parse()?;  // mininet host addr
     let (endpoint, _server_cert) = make_server_endpoint(addr).unwrap(); // mininet host addr
 
     // accept a single connection

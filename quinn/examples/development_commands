@@ -23,3 +23,7 @@ tc qdisc del dev h2-eth0 root
 
 cargo run --example insecure_server ./
 cargo run --example insecure_client https://localhost:4433/README.md
+
+
+sudo netstat -pln | grep ':6653'
+sudo kill -9 885
