@@ -80,7 +80,8 @@ async fn run(options: Opt) -> Result<()> {
 
     let formatted_time = now.format("%Y%m%d%H%M%S").to_string();
 
-    let file_name = format!("client_{}.qlog", formatted_time);
+    // let file_name = format!("client_{}.qlog", formatted_time);
+    let file_name = format!("./quinn/client_log/client_{}.qlog", formatted_time);
 
     // 创建 Qlog 流处理器
     let qlog_file = File::create(file_name).unwrap();

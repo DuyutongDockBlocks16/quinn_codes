@@ -45,8 +45,8 @@ struct Opt {
     #[clap(long = "stateless-retry")]
     stateless_retry: bool,
     /// Address to listen on
-    #[clap(long = "listen", default_value = "[::1]:4433")] // loopback addr
-    // #[clap(long = "listen", default_value = "10.0.0.1:4433")] // mininet host addr
+    // #[clap(long = "listen", default_value = "[::1]:4433")] // loopback addr
+    #[clap(long = "listen", default_value = "10.0.0.1:4433")] // mininet host addr
     listen: SocketAddr,
 }
 
@@ -190,7 +190,8 @@ async fn run(options: Opt) -> Result<()> {
 
         let formatted_time = now.format("%Y%m%d%H%M%S").to_string();
 
-        let file_name = format!("server_{}.qlog", formatted_time);
+        // let file_name = format!("server_{}.qlog", formatted_time);
+        let file_name = format!("./quinn/server_log/server_{}.qlog", formatted_time);
 
         let qlog_file = File::create(file_name).unwrap();
 
@@ -295,7 +296,8 @@ async fn handle_connection(root: Arc<Path>, conn: quinn::Connecting, mut streame
 
             let formatted_time = now.format("%Y%m%d%H%M%S").to_string();
 
-            let file_name = format!("request_{}.qlog", formatted_time);
+            // let file_name = format!("request_{}.qlog", formatted_time);
+            let file_name = format!("./quinn/request_log/request_{}.qlog", formatted_time);
 
             let qlog_file = File::create(file_name).unwrap();
 
